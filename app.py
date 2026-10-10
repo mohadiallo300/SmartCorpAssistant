@@ -2,6 +2,19 @@
 app.py - Interface Streamlit pour la boutique SmartCorp
 """
 
+# ============================================================================
+# ⚠️ CHARGEMENT DES SECRETS EN TOUT PREMIER — NE PAS DÉPLACER
+# Ces lignes DOIVENT être avant tout import qui dépend de os.environ
+# ============================================================================
+import os
+import streamlit as st
+
+for key in st.secrets:
+    os.environ[key] = str(st.secrets[key])
+
+# ============================================================================
+# ===== IMPORTS =====
+# ============================================================================
 import asyncio
 import ast
 import json
@@ -9,14 +22,9 @@ import re
 from pathlib import Path
 
 import requests
-import streamlit as st
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 
 from LangGraph import smartcorp_assistant
-import os
-import streamlit as st
-for key in st.secrets:
-    os.environ[key] = str(st.secrets[key])
 
 
 # ============================================================================
@@ -98,32 +106,23 @@ st.markdown("""
         border-color: #93c5fd;
     }
     .product-image-wrapper {
-        width: 100%;
-        height: 160px;
+        width: 100%; height: 160px;
         background: linear-gradient(135deg, #f8fafc, #eff6ff) !important;
         border-radius: 10px;
         margin-bottom: 0.9rem;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
-        border: 1px solid #e2e8f0;
-        position: relative;
-        color: #94a3b8;
+        display: flex; align-items: center; justify-content: center;
+        overflow: hidden; border: 1px solid #e2e8f0;
+        position: relative; color: #94a3b8;
     }
     .product-image {
-        width: 100%;
-        height: 100%;
-        object-fit: contain;
-        padding: 8px;
+        width: 100%; height: 100%;
+        object-fit: contain; padding: 8px;
         transition: transform 0.3s ease;
         background: transparent !important;
     }
     .product-card:hover .product-image { transform: scale(1.06); }
     .product-image-placeholder {
-        font-size: 3rem;
-        opacity: 0.35;
-        display: inline-block;
+        font-size: 3rem; opacity: 0.35; display: inline-block;
     }
     .product-badges {
         display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 0.8rem;
@@ -429,16 +428,51 @@ def extract_tool_data(messages):
 
 
 def filter_products_by_response(products: list, response_text: str) -> list:
+    """
+    Filtre les produits à afficher.
+
+    Cascade :
+    1. Ligne technique [//]: # (SC...) présente → filtre par code exact
+    2. Sinon, détection d'indices produits dans la réponse → tout afficher
+    3. Sinon → rien
+    """
     if not products or not response_text:
         return []
+
+    # 1. Ligne technique explicite : [//]: # (SC0226F SC0179F)
     codes_in_text = set(re.findall(r'\bSC\d{3,6}[A-Z]?\b', response_text.upper()))
-    if not codes_in_text:
-        return []
-    filtered = [
-        p for p in products
-        if str(p.get("code_produit", "")).upper() in codes_in_text
+    if codes_in_text:
+        return [
+            p for p in products
+            if str(p.get("code_produit", "")).upper() in codes_in_text
+        ]
+
+    # 2. Fallback : la réponse parle-t-elle de produits ?
+    response_lower = response_text.lower()
+
+    has_table = "|" in response_text and response_text.count("|") >= 4
+    has_numbered_list = bool(re.search(r'^\s*\d+[\.\)]', response_text, re.MULTILINE))
+    has_bullet_list = bool(re.search(r'^\s*[-•*]\s', response_text, re.MULTILINE))
+
+    keywords = [
+        "voici", "voilà", "disponible", "en stock", "rupture",
+        "prix", "fcfa", "modèle", "option", "unité",
+        "on a", "j'ai", "nous avons",
     ]
-    return filtered
+    has_keyword = any(kw in response_lower for kw in keywords)
+
+    # Cas visuels clairs
+    if has_table or has_numbered_list:
+        return products
+
+    if has_bullet_list and has_keyword:
+        return products
+
+    # Cas texte simple : peu de produits + mot-clé présent → afficher
+    if has_keyword and len(products) <= 3:
+        return products
+
+    return []
 
 
 # ============================================================================
@@ -505,8 +539,6 @@ def show_product_dialog(product: dict):
     photo_url = resolve_photo_url(product.get("photo"))
     boutique = product.get("boutique", "—")
 
-    # ✅ FIX : on télécharge l'image et on l'affiche avec st.image
-    # (même méthode que dans les cartes produits)
     if photo_url:
         img_bytes = fetch_image_bytes(photo_url)
         if img_bytes:
@@ -840,7 +872,7 @@ st.markdown("""
 
 
 # ============================================================================
-# ===== DIALOG DÉTAILS (affiché en priorité si un produit est sélectionné) =====
+# ===== DIALOG DÉTAILS =====
 # ============================================================================
 
 if st.session_state.selected_product is not None:
