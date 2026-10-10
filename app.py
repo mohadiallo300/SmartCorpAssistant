@@ -431,10 +431,8 @@ def filter_products_by_response(products: list, response_text: str) -> list:
     """
     Filtre les produits à afficher.
 
-    Cascade :
-    1. Ligne technique [//]: # (SC...) présente → filtre par code exact
-    2. Sinon, détection d'indices produits dans la réponse → tout afficher
-    3. Sinon → rien
+    Version ULTRA-PERMISSIVE : affiche les produits dès qu'il y a des indices
+    qu'on parle de produits. Mieux vaut trop que rien.
     """
     if not products or not response_text:
         return []
@@ -442,37 +440,66 @@ def filter_products_by_response(products: list, response_text: str) -> list:
     # 1. Ligne technique explicite : [//]: # (SC0226F SC0179F)
     codes_in_text = set(re.findall(r'\bSC\d{3,6}[A-Z]?\b', response_text.upper()))
     if codes_in_text:
-        return [
+        filtered = [
             p for p in products
             if str(p.get("code_produit", "")).upper() in codes_in_text
         ]
+        # Si on a des codes mais qu'aucun ne matche, on renvoie tout
+        # (mieux vaut afficher tous les produits que rien)
+        return filtered if filtered else products
 
-    # 2. Fallback : la réponse parle-t-elle de produits ?
-    response_lower = response_text.lower()
+    # 2. Réponse triviale → pas de carte
+    response_stripped = response_text.strip()
+    response_lower = response_stripped.lower()
 
-    has_table = "|" in response_text and response_text.count("|") >= 4
-    has_numbered_list = bool(re.search(r'^\s*\d+[\.\)]', response_text, re.MULTILINE))
-    has_bullet_list = bool(re.search(r'^\s*[-•*]\s', response_text, re.MULTILINE))
-
-    keywords = [
-        "voici", "voilà", "disponible", "en stock", "rupture",
-        "prix", "fcfa", "modèle", "option", "unité",
-        "on a", "j'ai", "nous avons",
+    trivial_phrases = [
+        "bonjour", "salut", "bonsoir", "merci", "au revoir",
+        "à bientôt", "bonne journée", "de rien", "avec plaisir",
     ]
-    has_keyword = any(kw in response_lower for kw in keywords)
+    if len(response_stripped) < 30 and any(
+        response_lower.startswith(p) for p in trivial_phrases
+    ):
+        return []
 
-    # Cas visuels clairs
-    if has_table or has_numbered_list:
+    # 3. Indices forts qu'on parle de produits
+    strong_indicators = [
+        # Verbes de présentation
+        "voici", "voilà",
+        # Produits / commerce
+        "produit", "modèle", "référence", "article",
+        "stock", "disponible", "dispo", "rupture", "réapprovisionnement",
+        "prix", "fcfa", "coûte", "vaut", "tarif",
+        # Unités / capacités
+        "go", "gb", "to", "tb", "unité", "pièce",
+        # Possession
+        "on a", "j'ai", "nous avons", "il y a", "il reste",
+        # Catégories typiques du catalogue
+        "laptop", "pc", "ordinateur", "console", "carte", "clé", "usb",
+        "disque", "dur", "ssd", "souris", "écran", "clavier", "imprimante",
+        "cartouche", "encre", "câble", "chargeur", "batterie", "routeur",
+        "switch", "camera", "casque", "enceinte", "tablette", "téléphone",
+        "smartphone", "playstation", "xbox", "nintendo",
+    ]
+    has_strong = any(ind in response_lower for ind in strong_indicators)
+
+    # 4. Tableau markdown ou liste numérotée / à puces
+    has_table = "|" in response_text and response_text.count("|") >= 3
+    has_numbered = bool(re.search(r'^\s*\d+[\.\)\s]', response_text, re.MULTILINE))
+    has_bullet = bool(re.search(r'^\s*[-•*]\s', response_text, re.MULTILINE))
+
+    # 5. Décision
+    if has_table or has_numbered or has_bullet:
         return products
 
-    if has_bullet_list and has_keyword:
+    if has_strong:
         return products
 
-    # Cas texte simple : peu de produits + mot-clé présent → afficher
-    if has_keyword and len(products) <= 3:
+    # Si peu de produits et réponse moyenne → afficher
+    if len(products) <= 3 and len(response_stripped) > 40:
         return products
 
-    return []
+    # Par défaut : afficher tous les produits retournés par les tools
+    return products
 
 
 # ============================================================================
