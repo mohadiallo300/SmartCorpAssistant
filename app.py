@@ -13,6 +13,10 @@ import streamlit as st
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 
 from LangGraph import smartcorp_assistant
+import os
+import streamlit as st
+for key in st.secrets:
+    os.environ[key] = str(st.secrets[key])
 
 
 # ============================================================================
